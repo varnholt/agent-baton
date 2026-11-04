@@ -1,5 +1,5 @@
 [project]
-name = "agent-baton"
+name = "agent-baton-cli"
 version = "0.1.0"
 description = "Pass verified facts between coding agents, so none of them sits waiting on a human relay."
 readme = "README.md"

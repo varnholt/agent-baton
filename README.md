@@ -2,6 +2,7 @@
 
 [![ci](https://github.com/varnholt/agent-baton/actions/workflows/ci.yml/badge.svg)](https://github.com/varnholt/agent-baton/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/agent-baton-cli.svg)](https://pypi.org/project/agent-baton-cli/)
 ![python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)
 
@@ -74,7 +75,7 @@ Add your own with `baton serve --types types.json` (always delivered as unverifi
 Pure Python 3.10+, no dependencies.
 
 ```
-pip install git+https://github.com/varnholt/agent-baton
+pip install agent-baton-cli               # or: uv tool install agent-baton-cli
 
 # on one shared machine
 baton member add alice --db team.db     # prints a token once

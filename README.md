@@ -44,7 +44,7 @@ errors and confusion. baton is built so that does not happen:
 | Risk | What baton does |
 |---|---|
 | One agent instructs another | **Facts, not messages.** Every field is a short string matching a strict pattern. There is no free-text field to put a prompt in. |
-| A confused or malicious peer lies | **The receiver checks the source.** PR facts are checked against GitHub/Bitbucket, build facts against Jenkins, with the *receiver's* credentials. A contradicted fact exits non-zero. |
+| A confused or malicious peer lies | **The receiver checks the source.** PR facts are checked against GitHub/Bitbucket, build facts against Jenkins or GitHub Actions, with the *receiver's* credentials. A contradicted fact exits non-zero. |
 | Fake evidence (`https://evil.example/...`) | Verifiers only contact hosts the receiver already trusts, never follow redirects, and check the evidence is about the same PR/build as the fact. |
 | Impersonation | The publisher is set by the server from the token, never from the payload. |
 | "Who did that?" | Append-only log: every fact has publisher, timestamp and evidence. |
@@ -58,9 +58,24 @@ useful pointers, never grounds for an irreversible action.
 |---|---|---|---|
 | `pr_merged` | repo, pr | commit | GitHub, Bitbucket Cloud |
 | `pr_state` | repo, pr | state (`open/merged/declined/closed`) | GitHub, Bitbucket Cloud |
-| `build_finished` | job, build | result (`SUCCESS/FAILURE/...`) | Jenkins (`JENKINS_URL`) |
+| `build_finished` | job, build | result (`SUCCESS/FAILURE/...`) | Jenkins (`JENKINS_URL`), GitHub Actions |
 | `working_on` | repo, path | branch, state (`started/stopped`) | - |
 | `hint` | topic | tag (slug) | - |
+
+The verifier is chosen by the evidence host. For GitHub Actions the evidence is the
+run URL, `https://github.com/<owner>/<repo>/actions/runs/<run_id>` (a trailing
+`/attempts/<n>` checks that attempt; `/job/<id>` is accepted and checks the whole run).
+`build` must be the run id. `job` names the workflow, case-insensitive: the workflow
+file name without extension (`.github/workflows/ci.yml` -> `ci`) or the workflow's
+display name, optionally prefixed with `<repo>/` or `<owner>/<repo>/`, which must then
+match the evidence. The run must be `completed`; its conclusion maps to `success` ->
+`SUCCESS`, `failure`/`timed_out`/`startup_failure` -> `FAILURE`, `cancelled` -> `ABORTED`,
+`skipped`/`neutral` -> `NOT_BUILT`.
+
+```
+baton publish build_finished -s job=ci -s build=19121611211 -v result=SUCCESS \
+  -e https://github.com/acme/api/actions/runs/19121611211
+```
 
 Add your own with `baton serve --types types.json` (always delivered as unverifiable):
 
@@ -74,8 +89,31 @@ Add your own with `baton serve --types types.json` (always delivered as unverifi
 
 Pure Python 3.10+, no dependencies.
 
+### 60-second quickstart
+
 ```
 pip install agent-baton-cli               # or: uv tool install agent-baton-cli
+baton quickstart
+```
+
+`quickstart` creates a database and a token for you in your per-user data directory
+(`~/.local/share/baton`, or `%LOCALAPPDATA%\baton` on Windows), prints the
+`BATON_URL`/`BATON_TOKEN` lines for bash and PowerShell, and serves on
+`127.0.0.1:8765` (`--port` to change; it refuses non-loopback addresses). Paste the
+env lines into two terminals and try it:
+
+```
+baton wait hint -s topic=hello              # terminal 1: blocks
+baton publish hint -s topic=hello -v tag=hi # terminal 2: terminal 1 wakes up
+```
+
+Rerunning `baton quickstart` prints the same token again. For a team, set up a
+shared server as below.
+
+### Shared server
+
+```
+pip install agent-baton-cli
 
 # on one shared machine
 baton member add alice --db team.db     # prints a token once
@@ -92,6 +130,17 @@ export BITBUCKET_TOKEN=...                # optional, private repos
 
 Without TLS, keep the server on `127.0.0.1` and reach it over an SSH tunnel.
 
+### Docker
+
+```
+docker volume create baton-data
+docker run --rm -v baton-data:/data ghcr.io/varnholt/agent-baton baton member add alice --db /data/baton.db
+docker run -d --name baton -p 127.0.0.1:8765:8765 -v baton-data:/data ghcr.io/varnholt/agent-baton
+```
+
+The image runs `baton serve --db /data/baton.db --host 0.0.0.0` as a non-root user and
+speaks plain HTTP: publish the port on loopback as above, or put a TLS proxy in front.
+
 ## Use it from your agent
 
 | Agent | File | Install |
@@ -100,6 +149,7 @@ Without TLS, keep the server on `127.0.0.1` and reach it over an SSH tunnel.
 | Codex | [`integrations/codex/AGENTS.md`](integrations/codex/AGENTS.md) | append to your `AGENTS.md` |
 | Cursor | [`integrations/cursor/baton.mdc`](integrations/cursor/baton.mdc) | copy to `.cursor/rules/` |
 | Aider | [`integrations/aider/CONVENTIONS.md`](integrations/aider/CONVENTIONS.md) | `aider --read ...` |
+| Any MCP client | [`integrations/mcp`](integrations/mcp/README.md) | `claude mcp add baton -- baton mcp` |
 
 Each one teaches the agent the same three habits: wait instead of asking the user to
 relay, publish what others may be waiting on, and treat every fact as data.

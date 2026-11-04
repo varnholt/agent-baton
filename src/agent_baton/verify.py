@@ -2,7 +2,8 @@
 
 Rules that keep this safe:
 - Only hosts the receiver already trusts are contacted (github.com,
-  bitbucket.org, and the receiver's own JENKINS_URL). An evidence URL on any
+  bitbucket.org, and the receiver's own JENKINS_URL). Which verifier runs is
+  decided by the evidence host, never by anything else in the fact. An evidence URL on any
   other host is "unverifiable", never fetched - otherwise a peer could point
   the verifier at a fake API, or harvest the credentials it sends.
 - The evidence must describe the same subject as the fact. A real, merged PR
@@ -31,6 +32,22 @@ GITHUB_PR = re.compile(r"https://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)(?:/[
 BITBUCKET_PR = re.compile(
     r"https://bitbucket\.org/([\w.-]+)/([\w.-]+)/pull-requests/(\d+)(?:/[\w/-]*)?/?\Z"
 )
+# A workflow run, optionally one attempt of it or one job inside it.
+GITHUB_RUN = re.compile(
+    r"https://github\.com/([\w.-]+)/([\w.-]+)/actions/runs/(\d+)"
+    r"(?:/attempts/(\d+)|/job/\d+)?/?\Z"
+)
+# GitHub run conclusion -> build_finished result. Anything else is not a
+# finished build in Jenkins terms and is reported as a mismatch.
+GITHUB_CONCLUSIONS = {
+    "success": "SUCCESS",
+    "failure": "FAILURE",
+    "timed_out": "FAILURE",
+    "startup_failure": "FAILURE",
+    "cancelled": "ABORTED",
+    "skipped": "NOT_BUILT",
+    "neutral": "NOT_BUILT",
+}
 
 
 @dataclass(frozen=True)
@@ -74,6 +91,12 @@ def _same_commit(a: str | None, b: str) -> bool:
     return min(len(a), len(b)) >= 7 and (a.startswith(b) or b.startswith(a))
 
 
+def _github_headers() -> dict[str, str]:
+    if os.environ.get("GITHUB_TOKEN"):
+        return {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
+    return {}
+
+
 def _pr_info(evidence: str, subject: dict) -> tuple[str, str, str] | Verification:
     """Return (state, merge_commit, host) for a PR URL, or a Verification on failure."""
     m = GITHUB_PR.match(evidence)
@@ -88,10 +111,7 @@ def _pr_info(evidence: str, subject: dict) -> tuple[str, str, str] | Verificatio
         return Verification(MISMATCH, f"evidence is {owner}/{repo}#{number}, fact is about {subject['repo']}#{subject['pr']}")
 
     if host == "github":
-        headers = {}
-        if os.environ.get("GITHUB_TOKEN"):
-            headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
-        data = fetch_json(f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}/pulls/{number}", headers)
+        data = fetch_json(f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}/pulls/{number}", _github_headers())
         state = "merged" if data.get("merged") else data.get("state", "")
         return state, data.get("merge_commit_sha") or "", "GitHub"
 
@@ -145,7 +165,7 @@ def _jenkins_job_from_path(path: str, base_path: str) -> tuple[str, str] | None:
     return job, build
 
 
-def _verify_build_finished(fact: dict) -> Verification:
+def _verify_jenkins_build(fact: dict) -> Verification:
     base = os.environ.get("JENKINS_URL", "").rstrip("/")
     if not base:
         return Verification(UNVERIFIABLE, "JENKINS_URL is not set on this side")
@@ -172,6 +192,62 @@ def _verify_build_finished(fact: dict) -> Verification:
     if data.get("result") != fact["value"]["result"]:
         return Verification(MISMATCH, f"Jenkins reports {data.get('result')}, fact says {fact['value']['result']}")
     return Verification(VERIFIED, f"Jenkins reports {job} #{build} {data.get('result')}")
+
+
+def _same_workflow(subject_job: str, owner: str, repo: str, run: dict) -> bool:
+    """Does the fact's `job` name this run's workflow?
+
+    The workflow is named by its file stem (`.github/workflows/ci.yml` -> `ci`)
+    or by its display name, case-insensitive. It may be prefixed with
+    `repo/` or `owner/repo/`, which must then match the evidence repo.
+    """
+    names = {str(run.get("name") or "").lower()}
+    path = str(run.get("path") or "").split("@", 1)[0]
+    stem = path.rsplit("/", 1)[-1]
+    for ext in (".yml", ".yaml"):
+        if stem.endswith(ext):
+            names.add(stem[: -len(ext)].lower())
+    names.discard("")
+    job = subject_job.lower()
+    prefixes = ("", f"{repo}/".lower(), f"{owner}/{repo}/".lower())
+    return any(job == prefix + name for prefix in prefixes for name in names)
+
+
+def _verify_github_run(fact: dict) -> Verification:
+    m = GITHUB_RUN.match(fact["evidence"])
+    if not m:
+        return Verification(UNVERIFIABLE, "evidence is not a GitHub Actions run URL (.../actions/runs/<id>)")
+    owner, repo, run_id, attempt = m.groups()
+    subject = fact["subject"]
+    if subject["build"] != run_id:
+        return Verification(MISMATCH, f"evidence is run {run_id}, fact is about build {subject['build']}")
+    api = f"https://api.github.com/repos/{quote(owner)}/{quote(repo)}/actions/runs/{run_id}"
+    if attempt:
+        api += f"/attempts/{attempt}"
+    data = fetch_json(api, _github_headers())
+    if str(data.get("id")) != run_id:
+        return Verification(MISMATCH, f"GitHub returned run {data.get('id')}")
+    if attempt and str(data.get("run_attempt")) != attempt:
+        return Verification(MISMATCH, f"GitHub returned attempt {data.get('run_attempt')}")
+    if not _same_workflow(subject["job"], owner, repo, data):
+        return Verification(
+            MISMATCH, f"run {run_id} is workflow {data.get('path') or data.get('name')!r}, fact says {subject['job']}"
+        )
+    if data.get("status") != "completed":
+        return Verification(MISMATCH, f"GitHub reports the run is still running ({data.get('status')})")
+    conclusion = data.get("conclusion")
+    result = GITHUB_CONCLUSIONS.get(conclusion)  # type: ignore[arg-type]
+    if result is None:
+        return Verification(MISMATCH, f"GitHub reports conclusion {conclusion!r}, which is not a finished build")
+    if result != fact["value"]["result"]:
+        return Verification(MISMATCH, f"GitHub reports {conclusion} ({result}), fact says {fact['value']['result']}")
+    return Verification(VERIFIED, f"GitHub reports {owner}/{repo} run {run_id} {conclusion}")
+
+
+def _verify_build_finished(fact: dict) -> Verification:
+    if urlsplit(fact["evidence"]).netloc.lower() == "github.com":
+        return _verify_github_run(fact)
+    return _verify_jenkins_build(fact)
 
 
 VERIFIERS = {

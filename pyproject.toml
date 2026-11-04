@@ -1,6 +1,6 @@
 [project]
 name = "agent-baton-cli"
-version = "0.1.1"
+version = "0.2.0"
 description = "Pass verified facts between coding agents, so none of them sits waiting on a human relay."
 readme = "README.md"
 license = "MIT"
@@ -22,7 +22,7 @@ classifiers = [
 Homepage = "https://github.com/varnholt/agent-baton"
 Source = "https://github.com/varnholt/agent-baton"
 Issues = "https://github.com/varnholt/agent-baton/issues"
-Changelog = "https://github.com/varnholt/agent-baton/releases"
+Changelog = "https://github.com/varnholt/agent-baton/blob/main/CHANGELOG.md"
 
 [project.scripts]
 baton = "agent_baton.cli:main"

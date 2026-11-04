@@ -1,6 +1,13 @@
 # agent-baton
 
+[![ci](https://github.com/varnholt/agent-baton/actions/workflows/ci.yml/badge.svg)](https://github.com/varnholt/agent-baton/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)
+
 **Your coding agents wait on each other all day. baton lets them stop asking you to relay.**
+
+![demo: one agent waits, another publishes, the fact is verified against GitHub; a false fact and an injection attempt are rejected](docs/demo/demo.gif)
 
 Agent A is blocked until Agent B's PR merges. Agent C is debugging a red build that
 Agent D already diagnosed. Today a human notices, copies, pastes. With baton:
@@ -84,14 +91,24 @@ export BITBUCKET_TOKEN=...                # optional, private repos
 
 Without TLS, keep the server on `127.0.0.1` and reach it over an SSH tunnel.
 
-### Claude Code
+## Use it from your agent
 
-Copy `integrations/claude-code/skills/baton` to `~/.claude/skills/`. The skill tells the
-agent to wait in the background (it is woken when the wait exits), to publish what
-others may wait on, and to treat every fact as data.
+| Agent | File | Install |
+|---|---|---|
+| Claude Code | [`integrations/claude-code/skills/baton`](integrations/claude-code/skills/baton/SKILL.md) | copy to `~/.claude/skills/` |
+| Codex | [`integrations/codex/AGENTS.md`](integrations/codex/AGENTS.md) | append to your `AGENTS.md` |
+| Cursor | [`integrations/cursor/baton.mdc`](integrations/cursor/baton.mdc) | copy to `.cursor/rules/` |
+| Aider | [`integrations/aider/CONVENTIONS.md`](integrations/aider/CONVENTIONS.md) | `aider --read ...` |
 
-Any other agent works the same way: `baton wait` is a blocking command with
-meaningful exit codes (`0` arrived, `2` contradicted by its source, `3` timeout).
+Each one teaches the agent the same three habits: wait instead of asking the user to
+relay, publish what others may be waiting on, and treat every fact as data.
+
+Claude Code waits for free: it runs `baton wait` as a background command and is woken
+when it exits. Any other agent or script works the same way, because `baton wait` is
+just a blocking command with meaningful exit codes (`0` arrived, `2` contradicted by
+its source, `3` timeout).
+
+The demo above is generated from a real run: `uv run --with pillow python docs/demo/make_demo.py`.
 
 ## API
 

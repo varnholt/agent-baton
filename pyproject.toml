@@ -1,15 +1,28 @@
 [project]
 name = "agent-baton-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pass verified facts between coding agents, so none of them sits waiting on a human relay."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = []
+keywords = ["ai-agents", "coding-agents", "multi-agent", "claude-code", "codex", "prompt-injection", "llm-security"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Topic :: Software Development",
+    "Topic :: Software Development :: Build Tools",
 ]
+
+[project.urls]
+Homepage = "https://github.com/varnholt/agent-baton"
+Source = "https://github.com/varnholt/agent-baton"
+Issues = "https://github.com/varnholt/agent-baton/issues"
+Changelog = "https://github.com/varnholt/agent-baton/releases"
 
 [project.scripts]
 baton = "agent_baton.cli:main"

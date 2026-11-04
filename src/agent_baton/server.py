@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import ssl
+import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -17,6 +18,9 @@ MAX_WAIT = 55.0  # stay under common proxy idle timeouts; clients loop
 
 class BatonServer(ThreadingHTTPServer):
     daemon_threads = True
+    # On Windows SO_REUSEADDR lets a second process bind the same port and
+    # silently share its connections. Fail loudly instead.
+    allow_reuse_address = sys.platform != "win32"
 
     def __init__(self, addr, store: Store, types: dict[str, FactType]):
         super().__init__(addr, Handler)

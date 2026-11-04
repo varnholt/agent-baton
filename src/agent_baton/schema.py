@@ -69,7 +69,8 @@ BUILTIN_TYPES: dict[str, FactType] = {
         ),
         FactType(
             "build_finished",
-            "A CI build finished. Evidence: the Jenkins build URL.",
+            "A CI build finished. Evidence: the Jenkins build URL, or the GitHub Actions run URL"
+            " (job = workflow file stem or name, build = run id).",
             subject={"job": SLUG, "build": INT},
             value={"result": r"SUCCESS|FAILURE|UNSTABLE|ABORTED|NOT_BUILT"},
             verifiable=True,

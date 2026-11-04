@@ -1,10 +1,11 @@
-"""Command line: `baton serve | member | publish | wait | facts | types`."""
+"""Command line: `baton serve | quickstart | member | publish | wait | facts | types | mcp`."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from . import __version__
 from .client import BatonError, Client
@@ -43,17 +44,17 @@ def _print_fact(fact: dict, check: dict | None) -> None:
 # commands ------------------------------------------------------------------
 
 
-def cmd_serve(a) -> int:
+def _run_server(store, types, host: str, port: int, tls_cert: str | None = None, tls_key: str | None = None) -> int:
     from .server import serve
-    from .store import Store
 
-    types = load_types(a.types)
-    store = Store(a.db, retention_days=a.retention_days)
-    if not store.members():
-        print("warning: no members yet - add one with `baton member add <name> --db ...`", file=sys.stderr)
-    srv = serve(store, types, a.host, a.port, a.tls_cert, a.tls_key)
-    scheme = "https" if a.tls_cert else "http"
-    print(f"baton {__version__} serving {scheme}://{a.host}:{a.port} ({len(types)} fact types)", flush=True)
+    try:
+        srv = serve(store, types, host, port, tls_cert, tls_key)
+    except OSError as e:
+        store.close()
+        print(f"baton: cannot serve on {host}:{port}: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    scheme = "https" if tls_cert else "http"
+    print(f"baton {__version__} serving {scheme}://{host}:{port} ({len(types)} fact types)", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -62,6 +63,38 @@ def cmd_serve(a) -> int:
         srv.server_close()
         store.close()
     return EXIT_OK
+
+
+def cmd_serve(a) -> int:
+    from .store import Store
+
+    types = load_types(a.types)
+    store = Store(a.db, retention_days=a.retention_days)
+    if not store.members():
+        print("warning: no members yet - add one with `baton member add <name> --db ...`", file=sys.stderr)
+    return _run_server(store, types, a.host, a.port, a.tls_cert, a.tls_key)
+
+
+def cmd_quickstart(a) -> int:
+    from . import quickstart as qs
+    from .store import Store
+
+    qs.check_host(a.host)
+    directory = Path(a.data_dir) if a.data_dir else qs.data_dir()
+    name = qs.member_name()
+    db, token = qs.setup(directory, name)
+    url = f"http://{a.host}:{a.port}"
+    print(f"baton quickstart: member {name!r}, database {db}")
+    print("Run these in the shell where your agent runs:\n")
+    print(qs.env_lines(url, token))
+    print("Then try: baton types   (Ctrl+C stops the server; rerun to print this again)\n", flush=True)
+    return _run_server(Store(str(db)), load_types(None), a.host, a.port)
+
+
+def cmd_mcp(a) -> int:
+    from .mcp import run
+
+    return run()
 
 
 def cmd_member(a) -> int:
@@ -165,6 +198,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--retention-days", type=int, default=30)
     s.set_defaults(fn=cmd_serve)
 
+    s = sub.add_parser("quickstart", help="local trial: create a database and token, serve on 127.0.0.1")
+    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--host", default="127.0.0.1", help="loopback only")
+    s.add_argument("--data-dir", help="default: per-user data dir (or BATON_DATA_DIR)")
+    s.set_defaults(fn=cmd_quickstart)
+
     s = sub.add_parser("member", help="manage member tokens (run on the server)")
     s.add_argument("action", choices=["add", "remove", "list"])
     s.add_argument("name", nargs="?")
@@ -202,6 +241,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--types-file")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_types)
+
+    s = sub.add_parser("mcp", help="run an MCP stdio server exposing baton tools")
+    s.set_defaults(fn=cmd_mcp)
     return p
 
 
